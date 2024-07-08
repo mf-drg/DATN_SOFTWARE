@@ -1,0 +1,73 @@
+version: '3.8'
+services:
+  db:
+    image: yobasystems/alpine-mariadb
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: nema
+      MYSQL_USER: user
+      MYSQL_PASSWORD: admin
+    volumes:
+      - db-data:/var/lib/mysql
+    ports:
+      - '3306:3306'
+    restart: unless-stopped
+  emqx:
+    image: emqx/emqx:latest
+    volumes:
+      - emqx-data:/opt/emqx/data:rw
+      - ./docker/emqx/api_key.txt:/opt/emqx/data/api_key.txt:ro
+    ports:
+      - 1883:1883
+      - 8083:8083
+      - 8084:8084
+      - 18083:18083
+    environment:
+      - EMQX_NAME=emqx
+      - EMQX_ALLOW_ANONYMOUS=false
+      - EMQX_DASHBOARD__DEFAULT_PASSWORD=admin
+      - EMQX_AUTHENTICATION=[{mechanism="password_based", backend="built_in_database", password_hash_algorithm={name="plain", salt_position="disable"}, enable=true},{mechanism="jwt", algorithm="hmac-based", secret="kFJaSY8znsyw8P7", verify_claims={username="$${username}"}, from="password", use_jwks=false, enable=true}]
+      - EMQX_BRIDGES__WEBHOOK__MESSAGE__URL=http://host.docker.internal:8080/api/v1/mqtt/message
+      - EMQX_BRIDGES__WEBHOOK__MESSAGE__METHOD=post
+      - EMQX_BRIDGES__WEBHOOK__MESSAGE__HEADERS={content-type = "application/json", x-api-key="super_private_api_key" }
+      - EMQX_BRIDGES__WEBHOOK__STATUS__URL=http://host.docker.internal:8080/api/v1/mqtt/status
+      - EMQX_BRIDGES__WEBHOOK__STATUS__METHOD=post
+      - EMQX_BRIDGES__WEBHOOK__STATUS__HEADERS={content-type = "application/json", x-api-key="super_private_api_key" }
+      - EMQX_RULE_ENGINE__IGNORE_SYS_MESSAGE=true
+      - EMQX_RULE_ENGINE__JQ_FUNCTION_DEFAULT_TIMEOUT=10s
+      - EMQX_RULE_ENGINE__RULES__RULE_4XSC__ACTIONS__1=webhook:message
+      - EMQX_RULE_ENGINE__RULES__RULE_4XSC__DESCRIPTION="ingest mqtt topic to api"
+      - EMQX_RULE_ENGINE__RULES__RULE_4XSC__SQL="SELECT topic,payload FROM \"#\""
+      - EMQX_RULE_ENGINE__RULES__RULE_STXR__ACTIONS__1=webhook:status
+      - EMQX_RULE_ENGINE__RULES__RULE_STXR__DESCRIPTION="ingest mqtt client status to api"
+      - EMQX_RULE_ENGINE__RULES__RULE_STXR__SQL="SELECT * FROM \"$$events/client_connected\",\"$$events/client_disconnected\""
+      - EMQX_API_KEY__BOOTSTRAP_FILE=/opt/emqx/data/api_key.txt
+    restart: unless-stopped
+  # nanomq:
+  #   image: emqx/nanomq:0.21.10-full
+  #   volumes:
+  #     #- nanomq:/etc
+  #     - ./docker/nanomq/nanomq.conf:/etc/nanomq.conf:ro
+  #   ports:
+  #     - 1883:1883
+  #     - 8083:8083
+  #     - 8081:8081
+  #   restart: always
+  cronicle:
+    build:
+      context: ./docker/cronicle
+      dockerfile: ./Dockerfile.cronicle
+    restart: always
+    hostname: cronicle
+    ports:
+      - 3012:3012
+    volumes:
+      - ./docker/cronicle/conf/config.json:/opt/cronicle/conf/config.json:ro
+      - cronicle-data:/opt/cronicle/data
+
+volumes:
+  static-content:
+  db-data:
+  nanomq:
+  emqx-data:
+  cronicle-data:

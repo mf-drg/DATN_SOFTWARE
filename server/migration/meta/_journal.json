@@ -1,0 +1,27 @@
+{
+  "version": "6",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1715651133050,
+      "tag": "0000_typical_black_widow",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1719137930975,
+      "tag": "0001_rich_ulik",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1719322836516,
+      "tag": "0002_cold_leper_queen",
+      "breakpoints": true
+    }
+  ]
+}

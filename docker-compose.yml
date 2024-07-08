@@ -1,0 +1,106 @@
+version: '3.8'
+services:
+  db:
+    image: yobasystems/alpine-mariadb
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: nema
+      MYSQL_USER: user
+      MYSQL_PASSWORD: admin
+    volumes:
+      - db-data:/var/lib/mysql
+    ports:
+      - '3306:3306'
+    restart: unless-stopped
+  web:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile.prod
+    depends_on:
+      - db
+    environment:
+      EXPRESS_PORT: 3000
+      APP_KEY: super_private_key
+      APP_API_KEY: super_private_api_key
+      EMQX_BROKER_AUTH_KEY: kFJaSY8znsyw8P7
+      DB_NAME: nema
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_PASSWORD: admin
+      DB_USER: user
+      MQTT_API_URL: http://emqx:18083
+      MQTT_API_KEY_USERNAME: 334debcfbdc435a8
+      MQTT_API_KEY_PASSWORD: 64wCdsN15gmgNIWiORyWjbl9B9Bn2y400s5eCBXyXUFmF
+      CRONICLE_API_URL: http://cronicle:3012
+      CRONICLE_API_KEY: e567781e834b7074ff30839fc863043e
+      BASE_API_URL: http://web:3000
+    ports:
+      - '3000:3000'
+    volumes:
+      - static-content:/app/static
+    restart: unless-stopped
+  emqx:
+    image: emqx/emqx:latest
+    volumes:
+      - emqx-data:/opt/emqx/data:rw
+      - ./docker/emqx/api_key.txt:/opt/emqx/data/api_key.txt:ro
+    ports:
+      - 1883:1883
+      - 8083:8083
+      - 8084:8084
+      - 18083:18083
+    environment:
+      - EMQX_NAME=emqx
+      - EMQX_ALLOW_ANONYMOUS=false
+      - EMQX_DASHBOARD__DEFAULT_PASSWORD=admin
+      #http_auth- EMQX_AUTHENTICATION=[{mechanism="password_based",backend="http", url="http://host.docker.internal:8080/api/v1/mqtt/auth",method="post",body={username="$${username}", password="$${password}"},headers={content-type = "application/json", x-api-key="super_private_api_key" }, enable=true}]
+      - EMQX_AUTHENTICATION=[{mechanism="password_based", backend="built_in_database", password_hash_algorithm={name="plain", salt_position="disable"}, enable=true},{mechanism="jwt", algorithm="hmac-based", secret="kFJaSY8znsyw8P7", verify_claims={username="$${username}"}, from="password", use_jwks=false, enable=true}]
+      - EMQX_BRIDGES__WEBHOOK__MESSAGE__URL=http://web:3000/api/v1/mqtt/message
+      - EMQX_BRIDGES__WEBHOOK__MESSAGE__METHOD=post
+      - EMQX_BRIDGES__WEBHOOK__MESSAGE__HEADERS={content-type = "application/json", x-api-key="super_private_api_key" }
+      - EMQX_BRIDGES__WEBHOOK__STATUS__URL=http://web:3000/api/v1/mqtt/status
+      - EMQX_BRIDGES__WEBHOOK__STATUS__METHOD=post
+      - EMQX_BRIDGES__WEBHOOK__STATUS__HEADERS={content-type = "application/json", x-api-key="super_private_api_key" }
+      - EMQX_RULE_ENGINE__IGNORE_SYS_MESSAGE=true
+      - EMQX_RULE_ENGINE__JQ_FUNCTION_DEFAULT_TIMEOUT=10s
+      - EMQX_RULE_ENGINE__RULES__RULE_4XSC__ACTIONS__1=webhook:message
+      - EMQX_RULE_ENGINE__RULES__RULE_4XSC__DESCRIPTION="ingest mqtt topic to api"
+      - EMQX_RULE_ENGINE__RULES__RULE_4XSC__SQL="SELECT topic,payload FROM \"#\""
+      - EMQX_RULE_ENGINE__RULES__RULE_STXR__ACTIONS__1=webhook:status
+      - EMQX_RULE_ENGINE__RULES__RULE_STXR__DESCRIPTION="ingest mqtt client status to api"
+      - EMQX_RULE_ENGINE__RULES__RULE_STXR__SQL="SELECT * FROM \"$$events/client_connected\",\"$$events/client_disconnected\""
+    restart: unless-stopped
+  nginx:
+    image: nginx:alpine
+    ports:
+      - '80:80'
+      - '443:443'
+    environment:
+      NGINX_PORT: 80
+      API_HOST: web
+      API_PORT: 3000
+    depends_on:
+      - db
+      - web
+      - emqx
+    volumes:
+      - static-content:/usr/share/nginx/html:ro
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf.template:ro
+    command: /bin/sh -c "envsubst '$NGINX_PORT $API_HOST $API_PORT' < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf && nginx -g 'daemon off;'"
+    restart: unless-stopped
+  cronicle:
+    build:
+      context: ./docker/cronicle
+      dockerfile: ./Dockerfile.cronicle
+    restart: always
+    hostname: cronicle
+    ports:
+      - 3012:3012
+    volumes:
+      - ./docker/cronicle/conf/config.json:/opt/cronicle/conf/config.json:ro
+      - cronicle-data:/opt/cronicle/data
+volumes:
+  static-content:
+  db-data:
+  emqx-data:
+  cronicle-data:

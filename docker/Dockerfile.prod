@@ -1,0 +1,53 @@
+# buid production client code
+FROM node:18-alpine as builder-client
+
+WORKDIR /app
+
+COPY /client .
+
+ARG VITE_NODE_ENV=production
+
+RUN yarn install
+
+RUN yarn build
+
+
+# buid production api code
+FROM node:18-alpine as builder-api
+
+RUN apk add --no-cache bash curl dos2unix
+RUN curl -sf https://gobinaries.com/tj/node-prune | sh
+
+WORKDIR /app
+
+COPY --from=builder-client ./app/dist ./static
+COPY /server .
+
+RUN dos2unix ./scripts/wait-for-it.sh
+RUN dos2unix ./scripts/entrypoint.sh
+
+RUN yarn install
+
+RUN npm prune --production --force
+RUN node-prune node_modules/
+
+RUN npm prune --production --force
+RUN node-prune node_modules/
+
+# buid production
+FROM node:18-alpine as production-build
+
+RUN apk add  bash
+
+WORKDIR /app
+
+COPY --from=builder-client ./app/dist ./static
+COPY --from=builder-api ./app .
+
+RUN chmod +x ./scripts/entrypoint.sh
+RUN chmod +x ./scripts/wait-for-it.sh
+
+EXPOSE 3000
+ARG EXPRESS_PORT=3000
+
+ENTRYPOINT [ "./scripts/entrypoint.sh" ]
